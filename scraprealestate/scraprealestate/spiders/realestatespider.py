@@ -10,6 +10,22 @@ from selenium.webdriver.chrome.options import Options
 #       - Argenprop --> por pag muestra 20 / (250) 14 paginas a consultar
 #       - Zonaprop --> por pag muestra 20 / (250) 14 paginas a consultar
 
+AMENITIES = [
+    "piscina",
+    "pileta"
+    "salondeusosmúltiples",
+    "SUM",
+    "gimnasio",
+    "parrilla",
+    "spa",
+    "sauna",
+    "saladecine",
+    "solarium",
+    "terraza",
+    "espaciodeplaza",
+    "juegos",
+    "salóndefiestas"
+]
 
 class ArgenpropSpider(scrapy.Spider):
     name = "argenprop_spider"
@@ -30,24 +46,38 @@ class ArgenpropSpider(scrapy.Spider):
                 "url":          estate.css('a').attrib['href']
             }
 
-            # relative_estate = estate.css('a').attrib['href']
+            relative_estate = estate.css('a').attrib['href']
 
-            # if relative_estate is not None:
-            #     real_estate_url = 'https://www.argenprop.com' + relative_estate
-            #     yield response.follow(real_estate_url, callback=self.parse_real_estate_page)
+            if relative_estate is not None:
+                real_estate_url = 'https://www.argenprop.com' + relative_estate
+                yield response.follow(real_estate_url, callback=self.parse_real_estate_page)
 
-        if self.pages_to_scrape != 0:
-            next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
-            next_page_url = 'https://www.argenprop.com' + next_page
-            self.pages_to_scrape -=1
-            yield response.follow(next_page_url, callback=self.parse)
+        # if self.pages_to_scrape != 0:
+        #     next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
+        #     next_page_url = 'https://www.argenprop.com' + next_page
+        #     self.pages_to_scrape -=1
+        #     yield response.follow(next_page_url, callback=self.parse)
+
+    def clean_sections(self, section_resp):
+        properties = []
+        for item in section_resp:
+            properties.append(
+                {
+                    item.css("li p::text").get().replace(" ", "").split("\n")[1].replace(":",""): item.css("li p strong::text").get().replace(" ", "").split("\n")[1]
+                }
+            )
+        return properties
 
     def parse_real_estate_page(self, response):
         address = response.css("div.location-container h2::text").get()
         zone_location = response.css("div.location-container p::text").get()
-        section_characteristics = response.xpath("//ul[@id='section-caracteristicas']/li")
-        sections_properties = response.css("ul.property-features.collapse")
+        section_caracteristicas = response.xpath("//ul[@id='section-caracteristicas']/li")
+        section_superficies = response.xpath("//ul[@id='section-superficie']/li")
+        section_inst_edif = response.xpath("//ul[@id='section-instalaciones-edificio']/li")
 
+        characteristicas = self.clean_sections(section_resp=section_caracteristicas)
+        superficies = self.clean_sections(section_resp=section_superficies)
+        instalaciones = [item.css("li ::text").get().replace(" ","").split("\n")[1] for item in section_inst_edif]
 
 class ZonapropSpider(scrapy.Spider):
     name = "zonaprop_spider"
