@@ -1,29 +1,21 @@
 import scrapy
 from random import sample
+from scrapy.http import HtmlResponse
+import undetected_chromedriver as uc
+from selenium.webdriver.chrome.options import Options
+
 
 # How many pages are for each domanins? (get into ramdonly)
-# How many real estates we need to save? --> 500 (2:166) (1:167) Choose pages ramdonly
-# There are 3 different real estates:
-#       - Argenprop --> por pag muestra 20 / (166) 9 paginas a consultar
-#       - Zonaprop --> por pag muestra 20 / (166) 9 paginas a consultar
-#       - Propia --> por pag muestra 15 / (166) 12 paginas a consultar
-
-# TRY TO SCRAPE INSIDE real_estate_web_scraping.py INSTEAD
-
-ALLOWED_COUNT_DOMAINS_FIRST = 2
-ALLOWED_COUNT_DOMAINS_SECOND = 1
-REAL_ESTATES_TO_GET = {
-    "hundred_sixty_six": [166, ALLOWED_COUNT_DOMAINS_FIRST],
-    "hundred_sixty_seven": [167, ALLOWED_COUNT_DOMAINS_SECOND]
-}
-RANDOM_DOMAIN_ORDER = sample(range(100), ALLOWED_COUNT_DOMAINS_FIRST + ALLOWED_COUNT_DOMAINS_SECOND)
+# There are 2 different real estates:
+#       - Argenprop --> por pag muestra 20 / (250) 14 paginas a consultar
+#       - Zonaprop --> por pag muestra 20 / (250) 14 paginas a consultar
 
 
-
-class Realestatesell_agenprop_Spider(scrapy.Spider):
-    name = "realestatesell_argenprop_spider"
+class ArgenpropSpider(scrapy.Spider):
+    name = "argenprop_spider"
     allowed_domains = ["www.argenprop.com"]
     start_urls = ["https://www.argenprop.com/departamentos/venta/rosario-santa-fe"]
+    pages_to_scrape = 13
 
     def parse(self, response):
         estates = response.css('div.listing__item')
@@ -33,10 +25,8 @@ class Realestatesell_agenprop_Spider(scrapy.Spider):
         for estate in estates:
             price = estate.css('.card__monetary-values .card__price ::text').getall()
 
-            yield{
-                "name":         estate.css('div h2::text').get(),
+            yield {
                 "price":        price[1] + str.strip(price[2]),
-                "expenses":     estate.css('.card__expenses::attr(title)').get(),
                 "url":          estate.css('a').attrib['href']
             }
 
@@ -46,11 +36,57 @@ class Realestatesell_agenprop_Spider(scrapy.Spider):
             #     real_estate_url = 'https://www.argenprop.com' + relative_estate
             #     yield response.follow(real_estate_url, callback=self.parse_real_estate_page)
 
-        next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
-
-        if next_page is not None:
+        if self.pages_to_scrape != 0:
+            next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
             next_page_url = 'https://www.argenprop.com' + next_page
+            self.pages_to_scrape -=1
             yield response.follow(next_page_url, callback=self.parse)
 
     def parse_real_estate_page(self, response):
-        pass
+        address = response.css("div.location-container h2::text").get()
+        zone_location = response.css("div.location-container p::text").get()
+        section_characteristics = response.xpath("//ul[@id='section-caracteristicas']/li")
+        sections_properties = response.css("ul.property-features.collapse")
+
+
+class ZonapropSpider(scrapy.Spider):
+    name = "zonaprop_spider"
+    allowed_domains = ["www.zonaprop.com.ar"]
+    start_urls = ["https://www.zonaprop.com.ar/departamentos-venta-rosario.html"]
+
+    def __init__(self, *args, **kwargs):
+        super(ZonapropSpider, self).__init__(*args, **kwargs)
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        self.driver = uc.Chrome(options=chrome_options)
+
+    def parse(self, response):
+        self.driver.get(response.url)
+        selenium_response = HtmlResponse(url=response.url, body=self.driver.page_source, encoding='utf-8')
+        cards_container = selenium_response.css(".CardContainer-sc-1tt2vbg-5.fvuHxG")
+        self.logger.info(f"ACA: {cards_container}")
+        # for card in cards_container:
+        #     # price_container = card.find_element(by=By.CSS_SELECTOR, value=".PriceContainer-sc-12dh9kl-2.ePWLec")
+        #     # address_location = card.find_element(by=By.CSS_SELECTOR, value=".LocationBlock-sc-ge2uzh-1.cVCbkm").text.split("\n")
+
+        #     yield {
+        #         'url'       : card.css('a').attrib['href']
+        #         # 'address'   : address_location[0],
+        #         # 'location'  : address_location[1],
+        #         # 'price'     : price_container.find_element(by=By.CSS_SELECTOR, value=".Price-sc-12dh9kl-3.geYYII").text
+        #     }
+
+    #         # relative_estate = estate.css('a').attrib['href']
+
+    #         # if relative_estate is not None:
+    #         #     real_estate_url = 'https://www.argenprop.com' + relative_estate
+    #         #     yield response.follow(real_estate_url, callback=self.parse_real_estate_page)
+
+    #     next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
+
+    #     if next_page is not None:
+    #         next_page_url = 'https://www.argenprop.com' + next_page
+    #         yield response.follow(next_page_url, callback=self.parse)
+
+    # def parse_real_estate_page(self, response):
+    #     pass
