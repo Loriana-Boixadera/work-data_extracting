@@ -34,32 +34,18 @@ df_calles = pd.read_csv(
                 sep=",",
                 usecols=["NOMBRE","TIPO","NOMBRE_ABREV"]
             )
-
-calles=[
-    "DORREGO 34",
-    "ARBORIA 05 01  EDIFICIO 1",
-    "REPUBLICA SIRIA 100, PISO 2º",
-    "MAIPÚ 2200, PISO 10",
-    "VERA MÚJICA 860",
-    "MAUI - AV ESTANISLAO LOPEZ 2600. 44 - 1A",
-    "JUAN MANUEL DE ROSAS 1500, PISO 4",
-    "PASCO AL 1800 2 DORMITORIOS",
-    "PTE. ROCA 1500",
-    "AV. PELLEGRINI  4043 | MONOAMBIENTE",
-    "MAUI. AV. ESTANISLAO LOPEZ 2671. S31A2",
-    "QUINQUELA PLAZA",
-    "BV. AVELLANEDA 1080 BIS - TORRE BRISA - VISTA RIO",
-    "9 DE JULIO  357 | 1 DORMITORIO (2-03)",
-    "1 DE MAYO  AL 2300"
-]
-
-
+# NO MATCH:
+#   - Alvear
+#   - Pellegrini
+#   - Rodriguez
+#   - Alem
+#   - Oroño
 
 class ArgenpropSpider(scrapy.Spider):
     name = "argenprop_spider"
     allowed_domains = ["www.argenprop.com"]
     start_urls = ["https://www.argenprop.com/departamentos/venta/rosario-santa-fe"]
-    pages_to_scrape = 2 # 30
+    pages_to_scrape = 5 # 30
 
     def parse(self, response):
         estates = response.css('div.listing__item')
@@ -78,11 +64,11 @@ class ArgenpropSpider(scrapy.Spider):
                 real_estate_url = 'https://www.argenprop.com' + relative_estate
                 yield response.follow(real_estate_url, callback=self.parse_real_estate_page)
 
-        # if self.pages_to_scrape != 0:
-        #     next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
-        #     next_page_url = 'https://www.argenprop.com' + next_page
-        #     self.pages_to_scrape -=1
-        #     yield response.follow(next_page_url, callback=self.parse)
+        if self.pages_to_scrape != 0:
+            next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
+            next_page_url = 'https://www.argenprop.com' + next_page
+            self.pages_to_scrape -=1
+            yield response.follow(next_page_url, callback=self.parse)
 
     def clean_sections(self, section_resp):
         properties = {}
@@ -104,11 +90,12 @@ class ArgenpropSpider(scrapy.Spider):
             "É" : "E",
             "Í" : "I",
             "Ó" : "O",
-            "Ú" : "U"
+            "Ú" : "U",
+            "Ü" : "U"
         }
-        for elem in ["Á","É","Í","Ó","Ú"]:
+        for elem in ["Á","É","Í","Ó","Ú","Ü"]:
             if elem in address_to_parse:
-                address_to_parse.replace(elem, dict_letter.get(elem))
+                address_to_parse = address_to_parse.replace(elem, dict_letter.get(elem))
             else:
                 continue
         return address_to_parse
@@ -133,32 +120,60 @@ class ArgenpropSpider(scrapy.Spider):
                 pass
         if "1" in street:
             street = street.replace("1", "PRIMERO")
+        if "Torres Dolfines" in street:
+            street = "ESTANISLAO LOPEZ"
+        if "N°" in street:
+            street = street.replace("N°", "").strip()
         return street
 
-    def get_street_type(self, address):
-        calle = self.replace_accent(self.parse_street(address).upper())
-
-        df = df_calles[
-                df_calles["NOMBRE"].str.contains(calle) | df_calles["NOMBRE_ABREV"].str.contains(calle)
-        ]
-        if df.empty:
-            calle = calle.split(" ")
-            if calle.__len__() > 1:
-                df = df_calles[
-                    (df_calles["NOMBRE"].str.contains(calle[-2]) & df_calles["NOMBRE"].str.contains(calle[-1])) |
-                    (df_calles["NOMBRE_ABREV"].str.contains(calle[-2]) & df_calles["NOMBRE_ABREV"].str.contains(calle[-1]))
-                ]
-        if not df.empty:
-            if df.__len__() > 1:
-                df = df[df["NOMBRE_ABREV"] == calle]
-                if not df.empty:
-                    street_type = "1" if df["TIPO"].item().strip() == "C" else "0"
-                else: street_type = None
-            else:
-                street_type = "1" if df["TIPO"].item().strip() == "C" else "0"
-        else: street_type = "NOT STREET FOUND"
+    def return_street_type(self, df, calle):
+        df1 = df[df["NOMBRE_ABREV"].str.strip() == calle[0]]
+        if df1.empty:
+            if calle.__len__() >= 3:
+                df2 = df[df["NOMBRE_ABREV"].str.contains(calle[0]) &
+                        df["NOMBRE_ABREV"].str.contains(calle[1]) &
+                        df["NOMBRE_ABREV"].str.contains(calle[2])]
+                if df2.empty:
+                    df = df[df["NOMBRE"].str.contains(calle[0]) &
+                        df["NOMBRE"].str.contains(calle[1]) &
+                        df["NOMBRE"].str.contains(calle[2])]
+                else: street_type = "1" if df2["TIPO"].item().strip() == "C" else "0"
+            elif calle.__len__() == 2:
+                df2 = df[df["NOMBRE_ABREV"].str.contains(calle[0]) &
+                        df["NOMBRE_ABREV"].str.contains(calle[1])]
+                if df2.empty:
+                    df = df[df["NOMBRE"].str.contains(calle[0]) &
+                        df["NOMBRE"].str.contains(calle[1])]
+                    if not df.empty:
+                        street_type = "1" if df["TIPO"].item().strip() == "C" else "0"
+                else: street_type = "1" if df2["TIPO"].item().strip() == "C" else "0"
+            else: street_type = None
+        else: street_type = "1" if df1["TIPO"].item().strip() == "C" else "0"
         return street_type
 
+    def get_street_type(self, address):
+        calle = self.replace_accent(self.parse_street(address.upper())).strip().split(" ")
+        df = df_calles[
+                df_calles["NOMBRE"].str.contains(calle[0]) | df_calles["NOMBRE_ABREV"].str.contains(calle[0])
+            ]
+        if calle.__len__() > 1:
+            df = df_calles[
+                (df_calles["NOMBRE"].str.contains(calle[-2]) & df_calles["NOMBRE"].str.contains(calle[-1])) |
+                (df_calles["NOMBRE_ABREV"].str.contains(calle[-2]) & df_calles["NOMBRE_ABREV"].str.contains(calle[-1]))
+            ]
+        if not df.empty:
+            street_type = self.return_street_type(df, calle)
+        else:
+            if calle.__len__() > 1:
+                df = df_calles[
+                    (df_calles["NOMBRE"].str.contains(calle[0]) & df_calles["NOMBRE"].str.contains(calle[1])) |
+                    (df_calles["NOMBRE_ABREV"].str.contains(calle[0]) & df_calles["NOMBRE_ABREV"].str.contains(calle[1]))
+                ]
+            if not df.empty:
+                street_type = self.return_street_type(df, calle)
+            else:
+                street_type = "STREET NOT FOUND"
+        return calle, street_type
 
     def parse_real_estate_page(self, response):
         address = response.css("div.location-container h2::text").get()
@@ -171,12 +186,13 @@ class ArgenpropSpider(scrapy.Spider):
             characteristics = self.clean_sections(section_resp=section_caracteristicas)
             superficies = self.clean_sections(section_resp=section_superficies)
             instalaciones = [item.css("li ::text").get().replace(" ","").split("\n")[1].lower() for item in section_inst_edif]
+            acceso_calle = self.get_street_type(address)
 
             yield {
             ## Add data variable here for each real estate
                 "price"             : response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1],
                 "address"           : address,
-                "acceso_calle"      : self.get_street_type(address), # DUMMY
+                "acceso_calle"      : acceso_calle, # DUMMY
                 # "acceso_condominio" : acceso_condominio, # DUMMY
                 # "condominio"        : condominio, # DUMMY
                 "zone_location"     : zone_location,
@@ -184,7 +200,7 @@ class ArgenpropSpider(scrapy.Spider):
                 "dormitorios"       : characteristics["Cant.Dormitorios"] if "Cant.Dormitorios" in characteristics else 0,
                 "baños"             : characteristics["Cant.Baños"] if "Cant.Baños" in characteristics else 0,
                 "cocheras"          : characteristics["Cant.Cocheras"] if "Cant.Cocheras" in characteristics else 0,
-                "superficie_total"  : float(superficies["Sup.Cubierta"].split("m2")[0]) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0]) if "Sup.Descubierta" in superficies else 0.00),
+                "superficie_total"  : float(superficies["Sup.Cubierta"].split("m2")[0].replace(",",".")) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0].replace(",",".")) if "Sup.Descubierta" in superficies else 0.00),
                 "piscina"           : 1 if "pileta" in instalaciones else 0,
                 "amenities"         : 1 if len(instalaciones)>0 and (elem in AMENITIES for elem in instalaciones) else 0
             }
