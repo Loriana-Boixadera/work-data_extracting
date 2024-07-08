@@ -2,10 +2,17 @@ import re
 import scrapy
 from random import sample
 import pandas as pd
+from geopy import distance
+from ast import literal_eval
 
 
 # There is real estate agency:
 #       - Argenprop --> por pag muestra 20 / (500) 30 paginas a consultar --> Scrapy
+
+# AT the end save:
+#   - All variables for each real estate
+#   - Map with references
+#   - Program Workflow
 
 AMENITIES = [
     "piscina",
@@ -24,12 +31,15 @@ AMENITIES = [
     "juegosparachicos",
     "salóndefiestas"
 ]
-PATH_TO_FILE = "C:/Users/loria/Documents/github-projects/work-data_extracting/inputs/nomenclador_de_calles/Nomenclador de Calles.csv"
+PATH_TO_INPUTS = "C:/Users/loria/Documents/github-projects/work-data_extracting/inputs"
+RELAT_PATH_TO_STREETS = PATH_TO_INPUTS+"/nomenclador_de_calles/Nomenclador de Calles.csv"
+RELAT_PATH_TO_SQUARE = PATH_TO_INPUTS+"/espacios_verdes_plazas_json.csv"
+RELAT_PATH_TO_MALLS = PATH_TO_INPUTS+"/centros_comerciales.csv"
 df_calles = pd.read_csv(
-                PATH_TO_FILE,
-                sep=",",
-                usecols=["NOMBRE","TIPO","NOMBRE_ABREV"]
-            )
+    RELAT_PATH_TO_STREETS,
+    sep=",",
+    usecols=["NOMBRE","TIPO","NOMBRE_ABREV","GEOJSON"]
+)
 
 class ArgenpropSpider(scrapy.Spider):
     name = "argenprop_spider"
@@ -83,16 +93,52 @@ class ArgenpropSpider(scrapy.Spider):
                 continue
             descript.append(desc)
         return descript
-    
+
     def get_metres_between_nearest_places(self, coord_real_estate, place_type):
-        # TODO: continue with this function
+        dist = {
+            "obj": [],
+            "distance_in_km": [],
+            "minimun": []    
+        }
+        nearest_of_real_estate = {
+            "obj": None,
+            "distance_in_km": None
+        }
         if place_type=="avenida":
-            # read file from avenues
-            pass
-        elif place_type=="plazas":
-            # read file from plazas
-            pass
-        # return metres
+            df = df_calles[df_calles["TIPO"].str.strip() == "AV"]
+        elif place_type=="plaza":
+            df = pd.read_csv(
+                RELAT_PATH_TO_SQUARE,
+                sep=",",
+                usecols=["COD_EV_PL","NOMBRE","GEOJSON"]
+            )
+            df = df[df["COD_EV_PL"] != 0]
+            df = df.astype({"NOMBRE": str})
+        elif place_type=="paseo_comercial":
+            df = pd.read_csv(
+                RELAT_PATH_TO_MALLS,
+                sep=",",
+                usecols=["NOMBRE","GEOJSON"]
+            )
+
+        if place_type:
+            for _, row in df.iterrows():
+                dist_for_coords = []
+                dist["obj"].append(row["NOMBRE"].strip())
+                for coords in literal_eval(row["GEOJSON"]).get("geometry").get("coordinates"):
+                    for coord in coords:
+                        dist_for_coords.append(distance.distance((coord_real_estate[0], coord_real_estate[1]), (coord[1], coord[0])).km)
+                dist["distance_in_km"].append(dist_for_coords)
+                dist["minimun"] = sorted(dist["distance_in_km"])[0]
+            nearest_of_real_estate["distance_in_km"] = sorted(dist["minimun"])[0]
+
+            i = 0
+            for l in dist["distance_in_km"]:
+                if not nearest_of_real_estate["distance_in_km"] in l:
+                    i += 1
+                else:
+                    nearest_of_real_estate["obj"] = dist["obj"][i]
+        return round(nearest_of_real_estate["distance_in_km"]*1000, 2)
 
     def replace_accent(self, address_to_parse):
         dict_letter = {
@@ -227,7 +273,7 @@ class ArgenpropSpider(scrapy.Spider):
             characteristics = self.clean_sections(section_resp=section_caracteristicas)
             superficies = self.clean_sections(section_resp=section_superficies)
             instalaciones = [item.css("li ::text").get().replace(" ","").split("\n")[1].lower() for item in section_inst_edif]
-            acceso_calle = self.get_street_type(address)
+            acceso_calle = int(self.get_street_type(address))
 
             description = self.parse_description(descriptions=response.xpath('//div[@class="section-description--content"]/text()'))
             amenities = 1 if len(instalaciones)>0 and (elem in AMENITIES for elem in instalaciones) else 0
@@ -245,7 +291,7 @@ class ArgenpropSpider(scrapy.Spider):
             paseo_comercial = self.get_metres_between_nearest_places(coord_real_estate=coord, place_type="paseo_comercial")
 
             yield {
-                "price"             : response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1],
+                "price"             : response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1].split("USD")[1],
                 "address"           : address,
                 "acceso_calle"      : acceso_calle, # DUMMY
                 # "acceso_condominio" : acceso_condominio, # DUMMY
@@ -257,9 +303,9 @@ class ArgenpropSpider(scrapy.Spider):
                 "zone_location"     : zone_location,
                 "description"       : description,
                 "barrio"            : zone_location.split(",")[0],
-                "dormitorios"       : characteristics["Cant.Dormitorios"] if "Cant.Dormitorios" in characteristics else 0,
-                "baños"             : characteristics["Cant.Baños"] if "Cant.Baños" in characteristics else 0,
-                "cocheras"          : characteristics["Cant.Cocheras"] if "Cant.Cocheras" in characteristics else 0,
+                "dormitorios"       : int(characteristics["Cant.Dormitorios"]) if "Cant.Dormitorios" in characteristics else 0,
+                "baños"             : int(characteristics["Cant.Baños"]) if "Cant.Baños" in characteristics else 0,
+                "cocheras"          : int(characteristics["Cant.Cocheras"]) if "Cant.Cocheras" in characteristics else 0,
                 "superficie_total"  : float(superficies["Sup.Cubierta"].split("m2")[0].replace(",",".")) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0].replace(",",".")) if "Sup.Descubierta" in superficies else 0.00),
                 "piscina"           : piscina,
                 "amenities"         : (1 if "AMENITIES" in " ".join(description).upper() else 0) if not amenities else amenities
