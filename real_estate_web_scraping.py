@@ -1,4 +1,6 @@
+import numpy as np
 import pandas as pd
+from random import sample
 from geopy import distance
 from ast import literal_eval
 
@@ -7,6 +9,7 @@ PATH_TO_INPUTS = "C:/Users/loria/Documents/github-projects/work-data_extracting/
 RELAT_PATH_TO_STREETS = PATH_TO_INPUTS+"/nomenclador_de_calles/Nomenclador de Calles.csv"
 RELAT_PATH_TO_SQUARE = PATH_TO_INPUTS+"/espacios_verdes_plazas_json.csv"
 RELAT_PATH_TO_MALLS = PATH_TO_INPUTS+"/centros_comerciales.csv"
+RELAT_PATH_TO_BARRIOS = PATH_TO_INPUTS+"/barrios_json.csv"
 df_calles = pd.read_csv(
     RELAT_PATH_TO_STREETS,
     sep=",",
