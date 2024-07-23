@@ -3,11 +3,12 @@ import gc
 import scrapy
 import numpy as np
 import pandas as pd
-from random import sample
+from random import sample, randint
 from geopy import distance
 from ast import literal_eval
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
+from scraprealestate.items import ScraprealestateItem
 
 
 # There is real estate agency:
@@ -69,7 +70,15 @@ class ArgenpropSpider(scrapy.Spider):
     name = "argenprop_spider"
     allowed_domains = ["www.argenprop.com"]
     start_urls = ["https://www.argenprop.com/departamentos/venta/rosario-santa-fe?solo-ver-dolares"]
-    pages_to_scrape = 1 # 30
+    pages_to_scrape = 2 # 30
+
+    user_agent_list = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
+        'Mozilla/4.0 (compatible; MSIE 9.0; Windows NT 6.1)',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36 Edg/87.0.664.75',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/18.18363',
+    ]
 
     def parse(self, response):
         estates = response.css('div.listing__item')
@@ -84,7 +93,7 @@ class ArgenpropSpider(scrapy.Spider):
 
             if relative_estate is not None:
                 real_estate_url = 'https://www.argenprop.com' + relative_estate
-                yield response.follow(real_estate_url, callback=self.parse_real_estate_page)
+                yield response.follow(real_estate_url, callback=self.parse_real_estate_page, headers={"User-Agent":self.user_agent_list[randint(0, len(self.user_agent_list)-1)]})
 
         if self.pages_to_scrape != 0:
             # amount_pages = int(response.css('li.pagination__page a::text').getall()[-1])
@@ -92,7 +101,7 @@ class ArgenpropSpider(scrapy.Spider):
             next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
             next_page_url = 'https://www.argenprop.com' + next_page
             self.pages_to_scrape -=1
-            yield response.follow(next_page_url, callback=self.parse, dont_filter = True)
+            yield response.follow(next_page_url, callback=self.parse, dont_filter= True, headers={"User-Agent":self.user_agent_list[randint(0, len(self.user_agent_list)-1)]})
 
     def clean_sections(self, section_resp):
         properties = {}
@@ -347,26 +356,29 @@ class ArgenpropSpider(scrapy.Spider):
             if barrio == "Rosario":
                 barrio = self.which_barrio(coord_real_estate=coord)#.capitalize()
 
-            yield {
-                "url"               : response.request.url,
-                "price"             : response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1].split("USD")[1], # precio x m^2
-                "acceso_condominio" : acceso_condominio, # DUMMY
-                "condominio"        : condominio, # DUMMY
-                "avenida"           : avenida, # Dummy - incl. av y bv
-                "vista_rio"         : vista_rio,
-                "parque"            : parque, # DUMMY
-                "plaza"             : plaza, # DUMMY
-                "paseo_comercial"   : paseo_comercial, # Metros
-                "barrio"            : barrio, # TODO: source barrios vecinales, dummy por cada barrio que aparezca (a definir)
-                "dormitorios"       : int(characteristics["Cant.Dormitorios"]) if "Cant.Dormitorios" in characteristics else 0,
-                "baños"             : int(characteristics["Cant.Baños"]) if "Cant.Baños" in characteristics else 0,
-                "cocheras"          : int(characteristics["Cant.Cocheras"]) if "Cant.Cocheras" in characteristics else 0,
-                "superficie_total"  : float(superficies["Sup.Cubierta"].split("m2")[0].replace(",",".")) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0].replace(",",".")) if "Sup.Descubierta" in superficies else 0.00),
-                "pileta"            : pileta,
-                "amenities"         : (1 if "AMENITIES" in description else 0) if not amenities else amenities,
-                "address"           : address,
-                "calle_cleaning"    : calle_cleaning,
-                "real_estate_coords": coord,
-                "description"       : description
-            }
+            real_estate_item = ScraprealestateItem()
+
+            real_estate_item["price"]             = response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1].split("USD")[1], # precio x m^2
+            real_estate_item["acceso_condominio"] = acceso_condominio, # DUMMY
+            real_estate_item["condominio"]        = condominio, # DUMMY
+            real_estate_item["avenida"]           = avenida, # Dummy - incl. av y bv
+            real_estate_item["vista_rio"]         = vista_rio,
+            real_estate_item["parque"]            = parque, # DUMMY
+            real_estate_item["plaza"]             = plaza, # DUMMY
+            real_estate_item["paseo_comercial"]   = paseo_comercial, # Metros
+            real_estate_item["barrio"]            = barrio, # TODO: source barrios vecinales, dummy por cada barrio que aparezca (a definir)
+            real_estate_item["dormitorios"]       = int(characteristics["Cant.Dormitorios"]) if "Cant.Dormitorios" in characteristics else 0,
+            real_estate_item["baños"]             = int(characteristics["Cant.Baños"]) if "Cant.Baños" in characteristics else 0,
+            real_estate_item["cocheras"]          = int(characteristics["Cant.Cocheras"]) if "Cant.Cocheras" in characteristics else 0,
+            real_estate_item["superficie_total"]  = float(superficies["Sup.Cubierta"].split("m2")[0].replace(",",".")) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0].replace(",",".")) if "Sup.Descubierta" in superficies else 0.00),
+            real_estate_item["pileta"]            = pileta,
+            real_estate_item["amenities"]         = (1 if "AMENITIES" in description else 0) if not amenities else amenities,
+
+            real_estate_item["url"]               = response.request.url,
+            real_estate_item["address"]           = address,
+            real_estate_item["calle_cleaning"]    = calle_cleaning,
+            real_estate_item["real_estate_coords"]= coord,
+            real_estate_item["description"]       = description
+
+            yield real_estate_item
 

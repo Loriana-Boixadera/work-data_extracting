@@ -9,5 +9,11 @@ from itemadapter import ItemAdapter
 
 
 class ScraprealestatePipeline:
+
     def process_item(self, item, spider):
+        adapter = ItemAdapter(item)
+        fields_name = adapter.field_names()
+        for field_name in fields_name:
+            if field_name != "description":
+                adapter[field_name] = adapter.get(field_name)[0]
         return item
