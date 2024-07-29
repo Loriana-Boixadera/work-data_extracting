@@ -70,7 +70,7 @@ class ArgenpropSpider(scrapy.Spider):
     name = "argenprop_spider"
     allowed_domains = ["www.argenprop.com"]
     start_urls = ["https://www.argenprop.com/departamentos/venta/rosario-santa-fe?solo-ver-dolares"]
-    pages_to_scrape = 2 # 30
+    pages_to_scrape = 90 # 30 - 90 => 1800 inmuebles
 
     user_agent_list = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36',
@@ -96,8 +96,6 @@ class ArgenpropSpider(scrapy.Spider):
                 yield response.follow(real_estate_url, callback=self.parse_real_estate_page, headers={"User-Agent":self.user_agent_list[randint(0, len(self.user_agent_list)-1)]})
 
         if self.pages_to_scrape != 0:
-            # amount_pages = int(response.css('li.pagination__page a::text').getall()[-1])
-            # random_page = f"/departamentos/venta/rosario-santa-fe?pagina-{sample(range(amount_pages), 1)[0]}&solo-ver-dolares"
             next_page = response.css('li.pagination__page-next.pagination__page a::attr(href)').get()
             next_page_url = 'https://www.argenprop.com' + next_page
             self.pages_to_scrape -=1
@@ -273,14 +271,16 @@ class ArgenpropSpider(scrapy.Spider):
                 (df_calles["NOMBRE_ABREV"].str.strip() == calle[0])
             ]
             if not df.empty:
-                street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                try: street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                except: street_type = 2
             else:
                 df = df_calles[
                     df_calles["NOMBRE"].str.contains(fr"\s{calle[0]}\s") |
                     df_calles["NOMBRE_ABREV"].str.contains(fr"\s{calle[0]}\s")
                 ]
                 if not df.empty:
-                    street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                    try: street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                    except: street_type = 2
                 else:
                     street_type = "LEN 1 - ELSE with regex searching"
         elif calle.__len__() == 2:
@@ -291,7 +291,8 @@ class ArgenpropSpider(scrapy.Spider):
                 (df_calles["NOMBRE_ABREV"].str.strip() == calle[-1] + " " + calle[-2])
             ]
             if not df.empty:
-                street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                try: street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                except: street_type = 2
             else:
                 df = df_calles[(
                         df_calles["NOMBRE"].str.contains(calle[0]) &
@@ -308,7 +309,8 @@ class ArgenpropSpider(scrapy.Spider):
                     )
                 ]
                 if not df.empty:
-                    street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                    try: street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                    except: street_type = 2
                 else: street_type = "LEN 2 - ELSE with regex searching"
         else:
             df = df_calles[(
@@ -322,7 +324,8 @@ class ArgenpropSpider(scrapy.Spider):
                     )
                 ]
             if not df.empty:
-                street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                try: street_type = 1 if df["TIPO"].item().strip() != "C" else 0
+                except: street_type = 2
             else:
                 street_type = "LEN Greater 3 - STREET NOT FOUND"
         return street_type, calle
@@ -331,14 +334,21 @@ class ArgenpropSpider(scrapy.Spider):
         address = response.css("div.location-container h2::text").get()
         if address is not None:
             avenida, calle_cleaning = self.get_street_type(address)
-            # if "LEN" not in calle_cleaning:
-            zone_location = response.css("div.location-container p::text").get()
-            section_caracteristicas = response.xpath("//ul[@id='section-caracteristicas']/li")
             section_superficies = response.xpath("//ul[@id='section-superficie']/li")
+            superficies = self.clean_sections(section_resp=section_superficies)
+            zone_location = response.css("div.location-container p::text").get()
+
+            barrio = zone_location.split(",")[0]
+            coord = [response.xpath("//div[@class='map-container']/div/@data-latitude").get().replace(",","."),response.xpath("//div[@class='map-container']/div/@data-longitude").get().replace(",",".")]
+            if barrio == "Rosario":
+                barrio = self.which_barrio(coord_real_estate=coord)
+            price = response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1].split("USD")[1]
+            sup_total = float(superficies["Sup.Cubierta"].split("m2")[0].replace(",",".")) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0].replace(",",".")) if "Sup.Descubierta" in superficies else 0.00)
+
+            section_caracteristicas = response.xpath("//ul[@id='section-caracteristicas']/li")
             section_inst_edif = response.xpath("//ul[@id='section-instalaciones-edificio']/li")
 
             characteristics = self.clean_sections(section_resp=section_caracteristicas)
-            superficies = self.clean_sections(section_resp=section_superficies)
             instalaciones = [item.css("li ::text").get().replace(" ","").split("\n")[1].lower() for item in section_inst_edif]
 
             description = " ".join(self.parse_description(descriptions=response.xpath('//div[@class="section-description--content"]/text()'))).upper()
@@ -349,16 +359,16 @@ class ArgenpropSpider(scrapy.Spider):
             acceso_condominio = condominio = 1 if any(w in description for w in L_CONDOS) else 0
             parque = vista_rio = 1 if any(w in description for w in L_VISTA_AL_RIO) else 0
 
-            coord = [response.xpath("//div[@class='map-container']/div/@data-latitude").get().replace(",","."),response.xpath("//div[@class='map-container']/div/@data-longitude").get().replace(",",".")]
             plaza = self.front_of_square(coord_real_estate=coord)
             paseo_comercial = self.get_metres_between_nearest_malls(coord_real_estate=coord)
-            barrio = zone_location.split(",")[0]
-            if barrio == "Rosario":
-                barrio = self.which_barrio(coord_real_estate=coord)#.capitalize()
+
+            try: price_per_m2 = round(float(int(price.replace(".",""))/sup_total), 3)
+            except: price_per_m2 = 0.000
 
             real_estate_item = ScraprealestateItem()
 
-            real_estate_item["price"]             = response.css("div.titlebar p::text").get().replace(" ","").split("\n")[1].split("USD")[1], # precio x m^2
+            # real_estate_item["price"]             = price, # precio x m^2
+            real_estate_item["price_per_m2"]      = price_per_m2, # precio x m^2
             real_estate_item["acceso_condominio"] = acceso_condominio, # DUMMY
             real_estate_item["condominio"]        = condominio, # DUMMY
             real_estate_item["avenida"]           = avenida, # Dummy - incl. av y bv
@@ -370,7 +380,7 @@ class ArgenpropSpider(scrapy.Spider):
             real_estate_item["dormitorios"]       = int(characteristics["Cant.Dormitorios"]) if "Cant.Dormitorios" in characteristics else 0,
             real_estate_item["baños"]             = int(characteristics["Cant.Baños"]) if "Cant.Baños" in characteristics else 0,
             real_estate_item["cocheras"]          = int(characteristics["Cant.Cocheras"]) if "Cant.Cocheras" in characteristics else 0,
-            real_estate_item["superficie_total"]  = float(superficies["Sup.Cubierta"].split("m2")[0].replace(",",".")) if "Sup.Cubierta" in superficies else 0.00 + (float(superficies["Sup.Descubierta"].split("m2")[0].replace(",",".")) if "Sup.Descubierta" in superficies else 0.00),
+            real_estate_item["superficie_total"]  = sup_total,
             real_estate_item["pileta"]            = pileta,
             real_estate_item["amenities"]         = (1 if "AMENITIES" in description else 0) if not amenities else amenities,
 

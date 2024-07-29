@@ -8,7 +8,8 @@ import scrapy
 
 class ScraprealestateItem(scrapy.Item):
     # define the fields for your item here like:
-    price               = scrapy.Field()
+    # price               = scrapy.Field()
+    price_per_m2        = scrapy.Field()
     acceso_condominio   = scrapy.Field()
     condominio          = scrapy.Field()
     avenida             = scrapy.Field()
