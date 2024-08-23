@@ -3,7 +3,7 @@ import gc
 import scrapy
 import numpy as np
 import pandas as pd
-from random import sample, randint
+from random import randint
 from geopy import distance
 from ast import literal_eval
 from shapely.geometry import Point
@@ -64,13 +64,13 @@ df_malls = pd.read_csv(
     )
 L_CONDOS = ["CONDOMINIO","CONDOS","CONDOMINIOS"]
 L_PILETAS = ["PISCINA","PISCINAS","PILETA","PILETAS"]
-L_VISTA_AL_RIO = ["VISTA AL RIO","VISTA AL RÍO","VISTA PARCIAL DEL RIO"]
+L_VISTA_AL_RIO = ["VISTA AL RIO","VISTA AL RÍO","VISTA PARCIAL DEL RIO","VISTA FRANCA AL RIO"]
 
 class ArgenpropSpider(scrapy.Spider):
     name = "argenprop_spider"
     allowed_domains = ["www.argenprop.com"]
     start_urls = ["https://www.argenprop.com/departamentos/venta/rosario-santa-fe?solo-ver-dolares"]
-    pages_to_scrape = 90 # 30 - 90 => 1800 inmuebles
+    pages_to_scrape = 1000
 
     user_agent_list = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36',
@@ -261,6 +261,8 @@ class ArgenpropSpider(scrapy.Spider):
             street = "SANTA CRUZ"
         if "COSTAVIA" in street:
             street = "RIVADAVIA"
+        if "RICHIERI" in street:
+            street = "RICCHIERI"
         return street
 
     def get_street_type(self, address):
@@ -355,7 +357,7 @@ class ArgenpropSpider(scrapy.Spider):
             amenities = 1 if len(instalaciones)>0 and (elem in AMENITIES for elem in instalaciones) else 0
 
             pileta = 1 if any(w in instalaciones for w in L_PILETAS) else 0
-            pileta = (1 if any(w in description for w in L_PILETAS) else 0) if pileta != 0 else pileta
+            pileta = (1 if any(w in description for w in L_PILETAS) else 0) if pileta == 0 else pileta
             acceso_condominio = condominio = 1 if any(w in description for w in L_CONDOS) else 0
             parque = vista_rio = 1 if any(w in description for w in L_VISTA_AL_RIO) else 0
 
